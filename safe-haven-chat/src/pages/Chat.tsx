@@ -47,7 +47,7 @@ import { format } from 'date-fns';
 import CyberbullyingAlertDialog from '@/components/CyberbullyingAlertDialog';
 
 interface Conversation {
-  user: { id: number; username: string; avatar_url?: string };
+  user: { id: number; username: string; avatar_url?: string; has_red_tag?: boolean };
   last_message: { id: number; content: string; created_at: string; sender_id: number };
 }
 
@@ -81,7 +81,7 @@ const Chat = () => {
   const [searchLoading, setSearchLoading] = useState(false);
   const [alertDialogOpen, setAlertDialogOpen] = useState(false);
   const [flaggedMessage, setFlaggedMessage] = useState<Message | null>(null);
-  const [selectedPeer, setSelectedPeer] = useState<{ id: number; username: string; avatar_url?: string | null } | null>(null);
+  const [selectedPeer, setSelectedPeer] = useState<{ id: number; username: string; avatar_url?: string | null; has_red_tag?: boolean } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout>();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -136,7 +136,7 @@ const Chat = () => {
   }, []);
 
   useEffect(() => {
-    if (selectedUserId) {
+    if (selectedUserId !== null) {
       loadMessages(selectedUserId);
     }
   }, [selectedUserId]);
@@ -161,16 +161,17 @@ const Chat = () => {
   }, [location]);
 
   useEffect(() => {
-    if (!isMobile && !selectedUserId && conversations.length > 0) {
+    if (!isMobile && selectedUserId === null && conversations.length > 0) {
       setSelectedUserId(conversations[0].user.id);
     }
-    if (selectedUserId && conversations.length > 0) {
+    if (selectedUserId !== null && conversations.length > 0) {
       const existing = conversations.find((c) => c.user.id === selectedUserId);
       if (existing) {
         setSelectedPeer({
           id: existing.user.id,
           username: existing.user.username,
           avatar_url: existing.user.avatar_url,
+          has_red_tag: existing.user.has_red_tag,
         });
       }
     }
@@ -211,6 +212,7 @@ const Chat = () => {
 
   useEffect(() => {
     wsMessages.forEach((wsMsg: WebSocketMessage) => {
+      // Handle regular messages
       if (wsMsg.type === 'message' && wsMsg.sender_id === selectedUserId) {
         setMessages((prev) => [
           ...prev,
@@ -219,10 +221,10 @@ const Chat = () => {
             sender_id: wsMsg.sender_id!,
             receiver_id: selectedUserId,
             content: wsMsg.content!,
-            content_filtered: wsMsg.content_filtered || wsMsg.content,
+            content_filtered: (wsMsg as any).content_filtered || wsMsg.content,
             message_type: wsMsg.message_type || 'text',
             is_flagged: wsMsg.is_flagged || false,
-            severity_score: wsMsg.severity_score,
+            severity_score: (wsMsg as any).severity_score,
             created_at: wsMsg.created_at!,
           },
         ]);
@@ -234,10 +236,10 @@ const Chat = () => {
             sender_id: wsMsg.sender_id!,
             receiver_id: selectedUserId,
             content: wsMsg.content!,
-            content_filtered: wsMsg.content_filtered || wsMsg.content,
+            content_filtered: (wsMsg as any).content_filtered || wsMsg.content,
             message_type: wsMsg.message_type || 'text',
             is_flagged: true,
-            severity_score: wsMsg.severity_score,
+            severity_score: (wsMsg as any).severity_score,
             created_at: wsMsg.created_at!,
           };
           setFlaggedMessage(flaggedMsg);
@@ -245,6 +247,31 @@ const Chat = () => {
         }
 
         scrollToBottom();
+      }
+
+      // Handle CyberBOT warning messages
+      if (wsMsg.type === 'cyberbot_warning' && wsMsg.sender_id === 0) {
+        // Only add to messages if we're viewing the CyberBOT conversation
+        if (selectedUserId === 0) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: wsMsg.id!,
+              sender_id: 0, // CyberBOT ID
+              receiver_id: currentUser?.id || 0,
+              content: wsMsg.content!,
+              content_filtered: wsMsg.content!,
+              message_type: 'system_warning',
+              is_flagged: false,
+              severity_score: 'info',
+              created_at: wsMsg.created_at!,
+            },
+          ]);
+          scrollToBottom();
+        }
+
+        // Always reload conversations to show CyberBOT chat in the list
+        loadUserAndConversations();
       }
     });
   }, [wsMessages, selectedUserId, currentUser]);
@@ -545,9 +572,16 @@ const Chat = () => {
                   </ListItemAvatar>
                   <ListItemText
                     primary={
-                      <Typography fontWeight={600} noWrap>
-                        {conversation.user.username}
-                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography fontWeight={600} noWrap>
+                          {conversation.user.username}
+                        </Typography>
+                        {conversation.user.has_red_tag && (
+                          <Tooltip title="Red Tagged User">
+                            <Box sx={{ fontSize: '0.9rem' }}>⚠️</Box>
+                          </Tooltip>
+                        )}
+                      </Box>
                     }
                     secondary={
                       <Typography variant="body2" color="text.secondary" noWrap>
@@ -599,9 +633,31 @@ const Chat = () => {
                     {activePeer.username[0].toUpperCase()}
                   </Avatar>
                   <Box sx={{ flex: 1 }}>
-                    <Typography variant="subtitle1" fontWeight={700}>
-                      {activePeer.username}
-                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="subtitle1" fontWeight={700}>
+                        {activePeer.username}
+                      </Typography>
+                      {activePeer.has_red_tag && (
+                        <Tooltip title="Red Tagged User - Multiple Policy Violations">
+                          <Box
+                            sx={{
+                              px: 1,
+                              py: 0.25,
+                              borderRadius: 1,
+                              bgcolor: 'error.main',
+                              color: 'white',
+                              fontSize: '0.7rem',
+                              fontWeight: 700,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 0.5,
+                            }}
+                          >
+                            ⚠️ RED TAG
+                          </Box>
+                        </Tooltip>
+                      )}
+                    </Box>
                     <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'success.main' }} />
                       Active now
@@ -624,28 +680,39 @@ const Chat = () => {
                 <Box sx={{ flex: 1, overflowY: 'auto', p: 3, bgcolor: 'rgba(249,250,251, 0.5)' }}>
                   {messages.map((msg) => {
                     const isOwn = msg.sender_id === currentUser?.id;
+                    const isCyberBOT = msg.sender_id === 0 || msg.message_type === 'system_warning';
                     return (
                       <Box
                         key={msg.id}
                         sx={{
                           display: 'flex',
-                          justifyContent: isOwn ? 'flex-end' : 'flex-start',
+                          justifyContent: isCyberBOT ? 'center' : isOwn ? 'flex-end' : 'flex-start',
                           mb: 2,
                         }}
                       >
                         <Box
                           sx={{
-                            maxWidth: '70%',
+                            maxWidth: isCyberBOT ? '85%' : '70%',
                             p: 2,
                             borderRadius: 3,
                             borderTopRightRadius: isOwn ? 4 : 3,
                             borderTopLeftRadius: isOwn ? 3 : 4,
-                            bgcolor: isOwn ? 'primary.main' : 'white',
-                            color: isOwn ? 'white' : 'text.primary',
-                            boxShadow: isOwn ? 'var(--shadow-md)' : '0 2px 4px rgba(0,0,0,0.05)',
-                            background: isOwn ? 'var(--gradient-primary)' : 'white',
+                            bgcolor: isCyberBOT ? 'warning.light' : isOwn ? 'primary.main' : 'white',
+                            color: isCyberBOT ? 'warning.dark' : isOwn ? 'white' : 'text.primary',
+                            boxShadow: isCyberBOT ? '0 4px 12px rgba(237, 108, 2, 0.2)' : isOwn ? 'var(--shadow-md)' : '0 2px 4px rgba(0,0,0,0.05)',
+                            background: isCyberBOT ? 'linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%)' : isOwn ? 'var(--gradient-primary)' : 'white',
+                            border: isCyberBOT ? '2px solid' : 'none',
+                            borderColor: isCyberBOT ? 'warning.main' : 'transparent',
                           }}
                         >
+                          {isCyberBOT && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, pb: 1, borderBottom: '1px solid', borderColor: 'warning.main' }}>
+                              <Box sx={{ fontSize: '1.2rem' }}>🤖</Box>
+                              <Typography variant="caption" fontWeight={700} color="warning.dark">
+                                CyberBOT - Safety Alert
+                              </Typography>
+                            </Box>
+                          )}
                           {msg.message_type === 'image' ? (
                             <Box sx={{ borderRadius: 2, overflow: 'hidden' }}>
                               <img

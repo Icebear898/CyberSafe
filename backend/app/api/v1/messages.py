@@ -213,22 +213,43 @@ async def get_conversations(
             ((Message.sender_id == uid) & (Message.receiver_id == current_user.id))
         ).order_by(Message.created_at.desc()).first()
         
-        other_user = db.query(User).filter(User.id == uid).first()
+        if not last_message:
+            continue
         
-        if last_message and other_user:
+        # Special handling for CyberBOT (user_id = 0)
+        if uid == 0:
             conversations.append({
                 "user": {
-                    "id": other_user.id,
-                    "username": other_user.username,
-                    "avatar_url": other_user.avatar_url
+                    "id": 0,
+                    "username": "CyberBOT",
+                    "avatar_url": None,
+                    "has_red_tag": False
                 },
                 "last_message": {
                     "id": last_message.id,
-                    "content": last_message.content_filtered or last_message.content,
+                    "content": "🤖 Safety Alert - Click to view",
                     "created_at": last_message.created_at,
                     "sender_id": last_message.sender_id
                 }
             })
+        else:
+            other_user = db.query(User).filter(User.id == uid).first()
+            
+            if other_user:
+                conversations.append({
+                    "user": {
+                        "id": other_user.id,
+                        "username": other_user.username,
+                        "avatar_url": other_user.avatar_url,
+                        "has_red_tag": other_user.has_red_tag
+                    },
+                    "last_message": {
+                        "id": last_message.id,
+                        "content": last_message.content_filtered or last_message.content,
+                        "created_at": last_message.created_at,
+                        "sender_id": last_message.sender_id
+                    }
+                })
     
     # Sort by last message time
     conversations.sort(key=lambda x: x["last_message"]["created_at"], reverse=True)

@@ -43,7 +43,7 @@ export const useWebSocket = (token: string | null) => {
 
   const connect = useCallback(() => {
     if (!token) return;
-    
+
     // Close existing connection if any
     if (socketRef.current) {
       if (socketRef.current.readyState === WebSocket.OPEN || socketRef.current.readyState === WebSocket.CONNECTING) {
@@ -57,10 +57,10 @@ export const useWebSocket = (token: string | null) => {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     // If baseUrl starts with http, replace protocol, otherwise assume it's just host
     const wsHost = baseUrl.replace(/^http[s]?:/, wsProtocol);
-    
+
     const wsUrl = `${wsHost}/api/v1/ws/chat/${token}`;
     console.log('Connecting to WebSocket:', wsUrl);
-    
+
     const ws = new WebSocket(wsUrl);
     socketRef.current = ws;
 
@@ -73,8 +73,12 @@ export const useWebSocket = (token: string | null) => {
     ws.onmessage = (event) => {
       try {
         const data: WebSocketMessage = JSON.parse(event.data);
-        
+
         if (data.type === 'message') {
+          setMessages((prev) => [...prev, data]);
+        } else if (data.type === 'cyberbot_warning') {
+          // Handle CyberBOT warning messages
+          console.log('CyberBOT warning received:', data);
           setMessages((prev) => [...prev, data]);
         } else if (data.type === 'message_sent') {
           // Handle sent confirmation - could update local message state to "sent"
@@ -111,7 +115,7 @@ export const useWebSocket = (token: string | null) => {
       setIsConnected(false);
       setSocket(null);
       socketRef.current = null;
-      
+
       // Attempt to reconnect after 3 seconds if not closed cleanly
       if (event.code !== 1000 && event.code !== 1001) {
         reconnectTimeoutRef.current = setTimeout(() => {
@@ -128,7 +132,7 @@ export const useWebSocket = (token: string | null) => {
 
   useEffect(() => {
     connect();
-    
+
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);

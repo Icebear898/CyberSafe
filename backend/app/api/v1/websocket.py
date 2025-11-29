@@ -15,6 +15,7 @@ from app.models.incident import Incident, SeverityLevel
 from app.models.friend_request import FriendRequest, FriendRequestStatus
 from app.services.ai_detection import ai_detection_service
 from app.services.evidence_logger import evidence_logger
+from app.services.cyberbot import cyberbot_service
 from app.core.security import decode_access_token
 
 router = APIRouter()
@@ -188,14 +189,6 @@ async def handle_message(data: dict, sender: User, db: Session):
         )
         db.add(incident)
         
-        # Update warnings
-        sender.warning_count += 1
-        if sender.warning_count >= 3:
-            sender.has_red_tag = True
-        if sender.warning_count >= 5:
-            sender.is_blocked = True
-            is_blocked = True
-        
         # Log evidence
         evidence_logger.log_incident(
             user_id=sender.id,
@@ -205,12 +198,45 @@ async def handle_message(data: dict, sender: User, db: Session):
             ai_analysis=detection_result.get("analysis", "")
         )
         
-        # Send warning to sender
-        await manager.send_personal_message({
-            "type": "warning",
-            "message": f"Warning: Your message was flagged. Severity: {detection_result.get('severity', 'medium')}",
-            "severity": detection_result.get("severity", "medium")
-        }, sender.id)
+        # Send CyberBOT warning to violator
+        violation_type = detection_result.get("categories", ["default"])[0] if detection_result.get("categories") else "default"
+        print(f"[DEBUG] Sending CyberBOT warning to user {sender.id}, violation: {violation_type}")
+        
+        warning_result = await cyberbot_service.send_warning(
+            db=db,
+            user_id=sender.id,
+            violation_type=violation_type,
+            severity=detection_result.get("severity", "medium"),
+            categories=detection_result.get("categories", [])
+        )
+        
+        print(f"[DEBUG] CyberBOT warning result: {warning_result}")
+        
+        # Send warning notification via WebSocket
+        if warning_result["success"]:
+            print(f"[DEBUG] Sending WebSocket notification to user {sender.id}")
+            await manager.send_personal_message({
+                "type": "cyberbot_warning",
+                "id": warning_result["message_id"],
+                "sender_id": cyberbot_service.CYBERBOT_USER_ID,
+                "sender_username": cyberbot_service.CYBERBOT_USERNAME,
+                "content": warning_result["message"],
+                "content_filtered": warning_result["message"],
+                "message_type": "system_warning",
+                "is_flagged": False,
+                "severity_score": "info",
+                "warning_count": warning_result["warning_count"],
+                "red_tagged": warning_result["red_tagged"],
+                "created_at": datetime.utcnow().isoformat()
+            }, sender.id)
+            print(f"[DEBUG] WebSocket notification sent successfully")
+        else:
+            print(f"[DEBUG] Warning failed: {warning_result.get('error')}")
+        
+        # Update sender status (already done in cyberbot_service, but refresh)
+        db.refresh(sender)
+        if sender.is_blocked:
+            is_blocked = True
     
     # Save message to database
     message = Message(
