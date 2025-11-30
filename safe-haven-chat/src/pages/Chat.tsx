@@ -214,20 +214,23 @@ const Chat = () => {
     wsMessages.forEach((wsMsg: WebSocketMessage) => {
       // Handle regular messages
       if (wsMsg.type === 'message' && wsMsg.sender_id === selectedUserId) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: wsMsg.id!,
-            sender_id: wsMsg.sender_id!,
-            receiver_id: selectedUserId,
-            content: wsMsg.content!,
-            content_filtered: (wsMsg as any).content_filtered || wsMsg.content,
-            message_type: wsMsg.message_type || 'text',
-            is_flagged: wsMsg.is_flagged || false,
-            severity_score: (wsMsg as any).severity_score,
-            created_at: wsMsg.created_at!,
-          },
-        ]);
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === wsMsg.id)) return prev;
+          return [
+            ...prev,
+            {
+              id: wsMsg.id!,
+              sender_id: wsMsg.sender_id!,
+              receiver_id: selectedUserId,
+              content: wsMsg.content!,
+              content_filtered: (wsMsg as any).content_filtered || wsMsg.content,
+              message_type: wsMsg.message_type || 'text',
+              is_flagged: wsMsg.is_flagged || false,
+              severity_score: (wsMsg as any).severity_score,
+              created_at: wsMsg.created_at!,
+            },
+          ];
+        });
 
         // Check if message is flagged and from the other user
         if (wsMsg.is_flagged && wsMsg.sender_id !== currentUser?.id) {
@@ -253,20 +256,23 @@ const Chat = () => {
       if (wsMsg.type === 'cyberbot_warning' && wsMsg.sender_id === 0) {
         // Only add to messages if we're viewing the CyberBOT conversation
         if (selectedUserId === 0) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: wsMsg.id!,
-              sender_id: 0, // CyberBOT ID
-              receiver_id: currentUser?.id || 0,
-              content: wsMsg.content!,
-              content_filtered: wsMsg.content!,
-              message_type: 'system_warning',
-              is_flagged: false,
-              severity_score: 'info',
-              created_at: wsMsg.created_at!,
-            },
-          ]);
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === wsMsg.id)) return prev;
+            return [
+              ...prev,
+              {
+                id: wsMsg.id!,
+                sender_id: 0, // CyberBOT ID
+                receiver_id: currentUser?.id || 0,
+                content: wsMsg.content!,
+                content_filtered: wsMsg.content!,
+                message_type: 'system_warning',
+                is_flagged: false,
+                severity_score: 'info',
+                created_at: wsMsg.created_at!,
+              },
+            ];
+          });
           scrollToBottom();
         }
 

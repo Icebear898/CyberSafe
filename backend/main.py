@@ -22,6 +22,38 @@ async def lifespan(app: FastAPI):
     # Create database tables
     Base.metadata.create_all(bind=engine)
     
+    # Initialize admin user
+    from app.core.database import SessionLocal
+    from app.models.user import User, UserRole
+    from app.core.security import get_password_hash
+    
+    db = SessionLocal()
+    try:
+        admin_email = "admin@cybershield.com"
+        admin = db.query(User).filter(User.email == admin_email).first()
+        if not admin:
+            print(f"Creating default admin user: {admin_email}")
+            admin_user = User(
+                email=admin_email,
+                username="admin",
+                full_name="System Admin",
+                hashed_password=get_password_hash("admin123"),
+                role=UserRole.ADMIN,
+                is_active=True,
+                is_blocked=False,
+                has_red_tag=False,
+                warning_count=0
+            )
+            db.add(admin_user)
+            db.commit()
+            print("✅ Default admin user created successfully")
+        else:
+            print(f"ℹ️ Admin user {admin_email} already exists")
+    except Exception as e:
+        print(f"❌ Failed to initialize admin user: {e}")
+    finally:
+        db.close()
+    
     yield
     
     # Shutdown

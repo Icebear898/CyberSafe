@@ -42,7 +42,11 @@ export const useWebSocket = (token: string | null) => {
   const socketRef = useRef<WebSocket | null>(null);
 
   const connect = useCallback(() => {
-    if (!token) return;
+    // Get latest token from storage or use prop
+    const storedToken = sessionStorage.getItem('auth_token');
+    const activeToken = storedToken || token;
+
+    if (!activeToken) return;
 
     // Close existing connection if any
     if (socketRef.current) {
@@ -58,7 +62,7 @@ export const useWebSocket = (token: string | null) => {
     // If baseUrl starts with http, replace protocol, otherwise assume it's just host
     const wsHost = baseUrl.replace(/^http[s]?:/, wsProtocol);
 
-    const wsUrl = `${wsHost}/api/v1/ws/chat/${token}`;
+    const wsUrl = `${wsHost}/api/v1/ws/chat/${activeToken}`;
     console.log('Connecting to WebSocket:', wsUrl);
 
     const ws = new WebSocket(wsUrl);
