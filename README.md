@@ -234,3 +234,186 @@ usecaseDiagram
 ---
 
 **CyberShield** - *Protecting the Digital Conversation.*
+
+---
+
+# 📚 Detailed File Reference & Logic Explanation
+
+This section provides a deep dive into every key file in the project, explaining its purpose, logic, and including critical code snippets.
+
+## 🖥️ Backend (`backend/app/`)
+
+### 1. `main.py` - Application Entry Point
+**Purpose**: Initializes the FastAPI application, sets up CORS, database tables, and static admin user.
+**Key Logic**:
+- **Lifespan Manager**: Handles startup tasks like creating DB tables and the default admin user.
+```python
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create database tables
+    Base.metadata.create_all(bind=engine)
+    # Initialize admin user logic...
+    yield
+```
+
+### 2. `services/ai_detection.py` - AI Content Analysis
+**Purpose**: The brain of the system. Handles text and image analysis using external APIs.
+**Key Logic**:
+- **Text Analysis**: Sends content to Groq API (Llama 3) with a system prompt to classify toxicity.
+```python
+async def detect_abuse(text: str) -> dict:
+    completion = client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=[
+            {"role": "system", "content": "Analyze for: cyberbullying, hate_speech, sexual_content..."},
+            {"role": "user", "content": text}
+        ]
+    )
+    # Returns JSON with severity and categories
+```
+
+### 3. `services/cyberbot.py` - Automated Warning System
+**Purpose**: Manages automated interventions for policy violations.
+**Key Logic**:
+- **Warning Templates**: Context-aware messages based on violation type.
+- **Escalation**: Auto-tags or blocks users based on `warning_count`.
+```python
+async def send_warning(self, db, user_id, violation_type, severity, categories):
+    # Increment warning count
+    user.warning_count += 1
+    
+    # Auto Red Tag logic
+    if user.warning_count >= 3:
+        user.has_red_tag = True
+        
+    # Generate and save warning message
+    message = Message(
+        sender_id=0,  # CyberBOT ID
+        content=warning_text,
+        message_type="system_warning"
+    )
+```
+
+### 4. `api/v1/websocket.py` - Real-time Chat Handler
+**Purpose**: Manages WebSocket connections and message routing.
+**Key Logic**:
+- **Connection Manager**: Tracks active user connections.
+- **Message Pipeline**: Receive -> AI Check -> Save -> Broadcast.
+```python
+async def handle_message(data, sender, db):
+    # 1. AI Detection
+    detection_result = await ai_service.detect_abuse(content)
+    
+    # 2. If Flagged
+    if detection_result["is_flagged"]:
+        # Send CyberBOT warning
+        await cyberbot_service.send_warning(...)
+        
+    # 3. Broadcast to receiver
+    await manager.send_personal_message(message_data, receiver_id)
+```
+
+### 5. `models/user.py` - Database Schema
+**Purpose**: Defines the User table structure.
+**Key Logic**:
+- **Fields**: `has_red_tag`, `warning_count`, `is_blocked` for safety features.
+```python
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    has_red_tag = Column(Boolean, default=False)  # Visual warning for others
+    warning_count = Column(Integer, default=0)    # Tracks violations
+```
+
+---
+
+## 🎨 Frontend (`safe-haven-chat/src/`)
+
+### 1. `pages/Chat.tsx` - Main Chat Interface
+**Purpose**: The core messaging UI. Handles real-time updates and user interactions.
+**Key Logic**:
+- **WebSocket Integration**: Connects to backend for live messages.
+- **CyberBOT Handling**: Special logic to display system warnings.
+```typescript
+// Handling CyberBOT messages
+if (wsMsg.type === 'cyberbot_warning' && wsMsg.sender_id === 0) {
+  // Add to CyberBOT conversation view
+  setMessages(prev => [...prev, systemMessage]);
+  // Refresh conversation list to show new alert
+  loadUserAndConversations();
+}
+```
+- **Red Tag Display**: Shows warning badge for flagged users.
+```typescript
+{activePeer.has_red_tag && (
+  <Tooltip title="Red Tagged User">
+    <Box sx={{ bgcolor: 'error.main' }}>⚠️ RED TAG</Box>
+  </Tooltip>
+)}
+```
+
+### 2. `hooks/useWebSocket.ts` - Custom WebSocket Hook
+**Purpose**: Manages the WebSocket connection lifecycle.
+**Key Logic**:
+- **Auto-Reconnect**: Automatically reconnects with fresh tokens if disconnected.
+- **Message Routing**: Dispatches incoming messages to the correct handler.
+```typescript
+const connect = useCallback(() => {
+  // Always get fresh token from storage
+  const token = sessionStorage.getItem('auth_token');
+  const ws = new WebSocket(`${wsHost}/api/v1/ws/chat/${token}`);
+  
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === 'cyberbot_warning') {
+      // Handle warning
+    }
+  };
+}, []);
+```
+
+### 3. `pages/Admin.tsx` - Admin Dashboard
+**Purpose**: Control center for moderators.
+**Key Logic**:
+- **Data Visualization**: Charts for incidents and user stats.
+- **Action Handlers**: Functions to Block/Unblock or Tag users.
+```typescript
+const handleToggleBlock = async (userId: number, currentStatus: boolean) => {
+  await apiClient.updateUserBlockStatus(userId, !currentStatus);
+  // Refresh list
+  loadUsers();
+};
+```
+
+### 4. `lib/api.ts` - API Client
+**Purpose**: Centralized Axios instance for all HTTP requests.
+**Key Logic**:
+- **Interceptors**: Automatically adds JWT token to headers.
+- **Error Handling**: Global error management.
+```typescript
+apiClient.interceptors.request.use((config) => {
+  const token = sessionStorage.getItem('auth_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+```
+
+### 5. `components/CyberbullyingAlertDialog.tsx`
+**Purpose**: Popup alert when a user receives a flagged message.
+**Key Logic**:
+- **User Choice**: Allows victim to Report, Block, or Ignore.
+```typescript
+<Dialog open={open}>
+  <DialogTitle>⚠️ Potential Cyberbullying Detected</DialogTitle>
+  <DialogContent>
+    This message was flagged by our AI. How would you like to proceed?
+  </DialogContent>
+  <DialogActions>
+    <Button onClick={handleBlock} color="error">Block User</Button>
+    <Button onClick={handleReport}>Report</Button>
+  </DialogActions>
+</Dialog>
+```
